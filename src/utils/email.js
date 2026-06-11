@@ -18,6 +18,14 @@ const getTransporter = () => {
   return transporter;
 };
 
+const testTransporter = async () => {
+  try {
+    await getTransporter().verify();
+  } catch (err) {
+    throw new Error(`Email service unavailable. Check SMTP credentials. (${err.message})`);
+  }
+};
+
 const sendOTPEmail = async (email, otp) => {
   const fromName = process.env.FROM_NAME || 'Garage Sale';
   const fromEmail = process.env.FROM_EMAIL || 'noreply@garagesale.com';
@@ -84,4 +92,4 @@ const sendRegistrationOTPEmail = async (email, otp) => {
   logger.info(`Registration OTP email sent to ${email}`);
 };
 
-module.exports = { sendOTPEmail, sendRegistrationOTPEmail };
+module.exports = { sendOTPEmail, sendRegistrationOTPEmail, testTransporter };
