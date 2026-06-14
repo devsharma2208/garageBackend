@@ -14,6 +14,7 @@ const protect = async (req, res, next) => {
 
     const user = await User.findById(decoded.id);
     if (!user) throw new ApiError('User belonging to this token no longer exists.', 401);
+    if (user.isBanned) throw new ApiError('Your account has been suspended. Contact support.', 403);
 
     req.user = user;
     next();

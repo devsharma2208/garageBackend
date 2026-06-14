@@ -20,7 +20,7 @@ router.post(
     body('lastName').trim().notEmpty().withMessage('Last name is required'),
     body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('otp').notEmpty().withMessage('Verification code is required'),
+    // body('otp').notEmpty().withMessage('Verification code is required'),
   ],
   validate,
   authController.register
