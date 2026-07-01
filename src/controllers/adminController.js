@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Sale = require('../models/Sale');
 const { success } = require('../utils/response');
 const { ApiError } = require('../middleware/errorHandler');
+const env = require('../config/env');
 
 // GET /api/admin/dashboard
 exports.getDashboard = async (req, res, next) => {
@@ -284,6 +285,83 @@ exports.deleteSale = async (req, res, next) => {
 
     await sale.deleteOne();
     return success(res, null, 'Sale deleted successfully');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/admin/sales
+exports.createSale = async (req, res, next) => {
+  try {
+    const {
+      title,
+      description,
+      address,
+      city,
+      latitude,
+      longitude,
+      startTime,
+      endTime,
+      categories,
+      images: bodyImages,
+    } = req.body;
+
+    const images = req.cloudinaryUrls?.length > 0 ? req.cloudinaryUrls : (bodyImages || []);
+
+    const parsedCategories =
+      typeof categories === 'string' ? JSON.parse(categories) : categories || [];
+
+    const sale = await Sale.create({
+      title,
+      description,
+      address,
+      city,
+      location: {
+        type: 'Point',
+        coordinates: [parseFloat(longitude), parseFloat(latitude)],
+      },
+      startTime,
+      endTime,
+      images: typeof images === 'string' ? JSON.parse(images) : images,
+      categories: parsedCategories,
+      seller: req.user._id,
+    });
+
+    const populated = await Sale.findById(sale._id).populate(
+      'seller',
+      'firstName lastName email avatarUrl'
+    );
+
+    return success(res, { sale: populated }, 'Sale created successfully', 201);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admin/geocode?lat=&lng=  — reverse-geocode map coordinates to address + city
+exports.geocodeLocation = async (req, res, next) => {
+  try {
+    const { lat, lng } = req.query;
+    if (!lat || !lng) throw new ApiError('lat and lng are required', 400);
+    if (!env.googleMapsApiKey) throw new ApiError('Google Maps API key is not configured', 500);
+
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(lat)},${encodeURIComponent(lng)}&key=${env.googleMapsApiKey}`;
+    const geoRes = await fetch(url);
+    const data = await geoRes.json();
+
+    if (data.status !== 'OK' || !data.results?.length) {
+      return success(res, { address: '', city: '' }, 'No address found for these coordinates');
+    }
+
+    const result = data.results[0];
+    const cityComp = result.address_components?.find(
+      (c) => c.types.includes('locality') || c.types.includes('administrative_area_level_2')
+    );
+
+    return success(res, {
+      address: result.formatted_address || '',
+      city: cityComp?.long_name || '',
+    });
   } catch (err) {
     next(err);
   }

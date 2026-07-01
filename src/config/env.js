@@ -26,4 +26,5 @@ module.exports = {
   fromName: process.env.FROM_NAME || 'Garage Sale',
   clientUrl: process.env.CLIENT_URL || '*',
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024,
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
 };
