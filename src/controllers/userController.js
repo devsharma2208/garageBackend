@@ -66,7 +66,7 @@ exports.getUserSales = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .populate('seller', 'firstName lastName avatarUrl sellerBadge'),
+        .populate('seller', 'firstName lastName avatarUrl sellerBadge phone'),
       Sale.countDocuments(query),
     ]);
 
@@ -91,7 +91,7 @@ exports.getSavedSales = async (req, res, next) => {
       path: 'savedSales',
       populate: {
         path: 'seller',
-        select: 'firstName lastName avatarUrl sellerBadge',
+        select: 'firstName lastName avatarUrl sellerBadge phone',
       },
     });
 

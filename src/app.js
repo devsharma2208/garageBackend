@@ -16,13 +16,21 @@ const logger = require('./utils/logger');
 
 const app = express();
 
-// Security headers
-app.use(helmet());
+// Security headers — allow cross-origin loading of /uploads (Expo web, admin panel)
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-// CORS
+// CORS — CLIENT_URL is a comma-separated list of allowed origins (e.g. admin panel + Expo web)
+const allowedOrigins = (process.env.CLIENT_URL || '*').split(',').map((o) => o.trim()).filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || '*',
+    origin: (origin, callback) => {
+      // Native Expo/React Native requests send no Origin header
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

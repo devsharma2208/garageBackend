@@ -771,7 +771,7 @@ Every Request
 | `SMTP_PASS` | No | — | SMTP password / app password |
 | `FROM_EMAIL` | No | `noreply@garagesale.com` | Sender email |
 | `FROM_NAME` | No | `Garage Sale` | Sender display name |
-| `CLIENT_URL` | No | `*` | Allowed CORS origin |
+| `CLIENT_URL` | No | `*` | Comma-separated allowed CORS origins (e.g. admin panel + Expo web). Requests with no Origin (native Expo apps) are always allowed |
 | `MAX_FILE_SIZE` | No | `5242880` | Max upload bytes (5 MB) |
 
 ---

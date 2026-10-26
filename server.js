@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 5000;
 const start = async () => {
   await connectDB();
 
-  const server = app.listen(PORT, () => {
+  // Bind to all interfaces so Expo apps on emulators/physical devices can reach the server over LAN
+  const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   });
 

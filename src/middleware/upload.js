@@ -1,7 +1,23 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
+const logger = require('../utils/logger');
 
 const memStorage = multer.memoryStorage();
+
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+// Cloudinary is usable only when all credentials are set and aren't the .env.example placeholders
+const isCloudinaryConfigured = () => {
+  const { CLOUDINARY_CLOUD_NAME: name, CLOUDINARY_API_KEY: key, CLOUDINARY_API_SECRET: secret } = process.env;
+  return [name, key, secret].every((v) => v && !v.startsWith('your_'));
+};
+
+if (!isCloudinaryConfigured()) {
+  logger.warn('Cloudinary credentials missing or placeholders — saving uploads to local /uploads instead');
+}
 
 const imageFilter = (_req, file, cb) => {
   if (file.mimetype.startsWith('image/')) cb(null, true);
@@ -20,15 +36,29 @@ const uploadToCloudinary = (buffer, folder) =>
     stream.end(buffer);
   });
 
+// Fallback: write the buffer to /uploads/<folder> and return a public URL served by app.js
+const saveLocally = async (req, file, folder) => {
+  const dir = path.join(UPLOADS_DIR, folder);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const ext = path.extname(file.originalname) || `.${file.mimetype.split('/')[1]}`;
+  const filename = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  await fs.promises.writeFile(path.join(dir, filename), file.buffer);
+  return `${req.protocol}://${req.get('host')}/uploads/${folder}/${filename}`;
+};
+
+const uploadImage = async (req, file, folder) =>
+  isCloudinaryConfigured()
+    ? (await uploadToCloudinary(file.buffer, folder)).secure_url
+    : saveLocally(req, file, folder);
+
 // Middleware: after multer, push all files to Cloudinary and attach URLs
 const processImages = (folder = 'garage-sale/sales') =>
   async (req, _res, next) => {
     try {
       if (req.files?.length > 0) {
-        const results = await Promise.all(
-          req.files.map((f) => uploadToCloudinary(f.buffer, folder))
+        req.cloudinaryUrls = await Promise.all(
+          req.files.map((f) => uploadImage(req, f, folder))
         );
-        req.cloudinaryUrls = results.map((r) => r.secure_url);
       } else {
         req.cloudinaryUrls = [];
       }
@@ -43,8 +73,7 @@ const processAvatar = (folder = 'garage-sale/avatars') =>
   async (req, _res, next) => {
     try {
       if (req.file) {
-        const result = await uploadToCloudinary(req.file.buffer, folder);
-        req.cloudinaryUrl = result.secure_url;
+        req.cloudinaryUrl = await uploadImage(req, req.file, folder);
       }
       next();
     } catch (err) {

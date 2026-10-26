@@ -58,7 +58,7 @@ exports.getSales = async (req, res, next) => {
         .sort(sortOption)
         .skip(skip)
         .limit(parseInt(limit))
-        .populate('seller', 'firstName lastName avatarUrl sellerBadge rating'),
+        .populate('seller', 'firstName lastName avatarUrl sellerBadge rating phone'),
       Sale.countDocuments(query),
     ]);
 
@@ -82,7 +82,7 @@ exports.getTrending = async (req, res, next) => {
     const sales = await Sale.find({ isActive: true, endTime: { $gte: new Date() } })
       .sort({ views: -1 })
       .limit(10)
-      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating');
+      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating phone');
 
     return success(res, { sales });
   } catch (err) {
@@ -101,7 +101,7 @@ exports.getEndingSoon = async (req, res, next) => {
     })
       .sort({ endTime: 1 })
       .limit(10)
-      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating');
+      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating phone');
 
     return success(res, { sales });
   } catch (err) {
@@ -130,7 +130,7 @@ exports.getNearbySales = async (req, res, next) => {
       },
     })
       .limit(20)
-      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating');
+      .populate('seller', 'firstName lastName avatarUrl sellerBadge rating phone');
 
     return success(res, { sales });
   } catch (err) {
@@ -160,7 +160,7 @@ exports.getSale = async (req, res, next) => {
   try {
     const sale = await Sale.findById(req.params.id).populate(
       'seller',
-      'firstName lastName avatarUrl sellerBadge rating city'
+      'firstName lastName avatarUrl sellerBadge rating city phone'
     );
 
     if (!sale) throw new ApiError('Sale not found', 404);
@@ -213,7 +213,7 @@ exports.createSale = async (req, res, next) => {
 
     const populated = await Sale.findById(sale._id).populate(
       'seller',
-      'firstName lastName avatarUrl sellerBadge'
+      'firstName lastName avatarUrl sellerBadge phone'
     );
 
     return success(res, { sale: populated }, 'Sale created successfully', 201);
@@ -273,7 +273,7 @@ exports.updateSale = async (req, res, next) => {
     const updated = await Sale.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
-    }).populate('seller', 'firstName lastName avatarUrl sellerBadge');
+    }).populate('seller', 'firstName lastName avatarUrl sellerBadge phone');
 
     return success(res, { sale: updated }, 'Sale updated successfully');
   } catch (err) {
