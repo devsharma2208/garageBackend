@@ -2,6 +2,8 @@ const Sale = require('../models/Sale');
 const User = require('../models/User');
 const { success } = require('../utils/response');
 const { ApiError } = require('../middleware/errorHandler');
+const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 // GET /api/sales
 exports.getSales = async (req, res, next) => {
@@ -174,6 +176,65 @@ exports.getSale = async (req, res, next) => {
   }
 };
 
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Validate and normalise the availability payload: [{ date, day, slots: [{ startTime, endTime }] }]
+const parseAvailability = (raw) => {
+  if (raw === undefined || raw === null || raw === '') return [];
+
+  let list = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw);
+    } catch (_) {
+      throw new ApiError('Availability must be valid JSON', 400);
+    }
+  }
+  if (!Array.isArray(list)) throw new ApiError('Availability must be an array', 400);
+
+  const seenDates = new Set();
+  const days = list.map((entry, i) => {
+    const date = new Date(entry?.date);
+    if (Number.isNaN(date.getTime())) {
+      throw new ApiError(`Availability day ${i + 1} has an invalid date`, 400);
+    }
+    // The client sends the day name in the seller's own timezone; fall back to the server's
+    const day = DAYS.includes(entry.day) ? entry.day : DAYS[date.getDay()];
+
+    const dateKey = date.toISOString();
+    if (seenDates.has(dateKey)) throw new ApiError(`${day} is listed more than once`, 400);
+    seenDates.add(dateKey);
+
+    if (!Array.isArray(entry.slots) || entry.slots.length === 0) {
+      throw new ApiError(`Add at least one time slot for ${day}`, 400);
+    }
+
+    const slots = entry.slots
+      .map((slot) => {
+        const startTime = new Date(slot?.startTime);
+        const endTime = new Date(slot?.endTime);
+        if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {
+          throw new ApiError(`A time slot on ${day} has an invalid time`, 400);
+        }
+        if (endTime <= startTime) {
+          throw new ApiError(`Each time slot on ${day} must end after it starts`, 400);
+        }
+        return { startTime, endTime };
+      })
+      .sort((a, b) => a.startTime - b.startTime);
+
+    for (let s = 1; s < slots.length; s += 1) {
+      if (slots[s].startTime < slots[s - 1].endTime) {
+        throw new ApiError(`Time slots on ${day} overlap`, 400);
+      }
+    }
+
+    return { date, day, slots };
+  });
+
+  return days.sort((a, b) => a.date - b.date);
+};
+
 // POST /api/sales
 exports.createSale = async (req, res, next) => {
   try {
@@ -187,6 +248,7 @@ exports.createSale = async (req, res, next) => {
       startTime,
       endTime,
       categories,
+      availability,
       images: bodyImages,
     } = req.body;
 
@@ -194,6 +256,8 @@ exports.createSale = async (req, res, next) => {
 
     const parsedCategories =
       typeof categories === 'string' ? JSON.parse(categories) : categories || [];
+
+    const parsedAvailability = parseAvailability(availability);
 
     const sale = await Sale.create({
       title,
@@ -208,6 +272,7 @@ exports.createSale = async (req, res, next) => {
       endTime,
       images: typeof images === 'string' ? JSON.parse(images) : images,
       categories: parsedCategories,
+      availability: parsedAvailability,
       seller: req.user._id,
     });
 
@@ -215,6 +280,11 @@ exports.createSale = async (req, res, next) => {
       'seller',
       'firstName lastName avatarUrl sellerBadge phone'
     );
+
+    // 1. Nearby Sales Notification: Dispatch to users within chosen area/radius
+    notificationService.notifyNearbyUsers(populated).catch((notifyErr) => {
+      logger.error('Failed to dispatch nearby sales notifications:', notifyErr);
+    });
 
     return success(res, { sale: populated }, 'Sale created successfully', 201);
   } catch (err) {
@@ -246,19 +316,50 @@ exports.updateSale = async (req, res, next) => {
     } = req.body;
 
     const updateData = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (address !== undefined) updateData.address = address;
-    if (city !== undefined) updateData.city = city;
-    if (startTime !== undefined) updateData.startTime = startTime;
-    if (endTime !== undefined) updateData.endTime = endTime;
-    if (isActive !== undefined) updateData.isActive = isActive;
+    const changedFields = [];
+
+    if (title !== undefined && title !== sale.title) {
+      updateData.title = title;
+      changedFields.push('title');
+    }
+    if (description !== undefined && description !== sale.description) {
+      updateData.description = description;
+      changedFields.push('description');
+    }
+    if (address !== undefined && address !== sale.address) {
+      updateData.address = address;
+      changedFields.push('address');
+    }
+    if (city !== undefined && city !== sale.city) {
+      updateData.city = city;
+      changedFields.push('city');
+    }
+    if (startTime !== undefined && new Date(startTime).getTime() !== new Date(sale.startTime).getTime()) {
+      updateData.startTime = startTime;
+      // Rescheduled — let the reminder job send a fresh starting-soon reminder
+      updateData.reminderStartingSent = false;
+      changedFields.push('start time');
+    }
+    if (endTime !== undefined && new Date(endTime).getTime() !== new Date(sale.endTime).getTime()) {
+      updateData.endTime = endTime;
+      updateData.reminderEndingSent = false;
+      changedFields.push('end time');
+    }
+    if (isActive !== undefined && isActive !== sale.isActive) {
+      updateData.isActive = isActive;
+      changedFields.push('status');
+    }
 
     if (latitude !== undefined && longitude !== undefined) {
-      updateData.location = {
-        type: 'Point',
-        coordinates: [parseFloat(longitude), parseFloat(latitude)],
-      };
+      const newLng = parseFloat(longitude);
+      const newLat = parseFloat(latitude);
+      if (sale.location?.coordinates?.[0] !== newLng || sale.location?.coordinates?.[1] !== newLat) {
+        updateData.location = {
+          type: 'Point',
+          coordinates: [newLng, newLat],
+        };
+        changedFields.push('location');
+      }
     }
 
     if (categories !== undefined) {
@@ -274,6 +375,13 @@ exports.updateSale = async (req, res, next) => {
       new: true,
       runValidators: true,
     }).populate('seller', 'firstName lastName avatarUrl sellerBadge phone');
+
+    // 4. Sale Changes Notification: Dispatch to users who saved this sale
+    if (changedFields.length > 0) {
+      notificationService.notifySaleChanges(updated, changedFields).catch((notifyErr) => {
+        logger.error('Failed to dispatch sale changes notifications:', notifyErr);
+      });
+    }
 
     return success(res, { sale: updated }, 'Sale updated successfully');
   } catch (err) {

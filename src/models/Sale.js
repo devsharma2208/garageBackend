@@ -42,6 +42,31 @@ const saleSchema = new mongoose.Schema(
       type: Date,
       required: [true, 'End time is required'],
     },
+    // Days the seller is available, each with one or more time slots
+    availability: {
+      type: [
+        {
+          _id: false,
+          date: { type: Date, required: true },
+          day: {
+            type: String,
+            enum: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+            required: true,
+          },
+          slots: {
+            type: [
+              {
+                _id: false,
+                startTime: { type: Date, required: true },
+                endTime: { type: Date, required: true },
+              },
+            ],
+            default: [],
+          },
+        },
+      ],
+      default: [],
+    },
     images: {
       type: [String],
       default: [],
@@ -58,6 +83,18 @@ const saleSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    isApproved: {
+      type: Boolean,
+      default: true,
+    },
+    reminderStartingSent: {
+      type: Boolean,
+      default: false,
+    },
+    reminderEndingSent: {
+      type: Boolean,
+      default: false,
     },
     views: {
       type: Number,

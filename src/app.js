@@ -11,6 +11,7 @@ const authRoutes = require('./routes/authRoutes');
 const saleRoutes = require('./routes/saleRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -82,6 +83,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

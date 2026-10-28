@@ -27,4 +27,11 @@ module.exports = {
   clientUrl: process.env.CLIENT_URL || '*',
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024,
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
+  firebase: {
+    serviceAccountKeyPath: process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH,
+    serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY,
+  },
 };

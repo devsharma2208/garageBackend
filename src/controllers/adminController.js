@@ -5,6 +5,8 @@ const Sale = require('../models/Sale');
 const { success } = require('../utils/response');
 const { ApiError } = require('../middleware/errorHandler');
 const env = require('../config/env');
+const notificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
 // GET /api/admin/dashboard
 exports.getDashboard = async (req, res, next) => {
@@ -267,11 +269,51 @@ exports.toggleSaleActive = async (req, res, next) => {
       { new: true }
     ).populate('seller', 'firstName lastName email');
 
+    // If sale was activated, notify seller (Seller Update)
+    if (updated.isActive) {
+      notificationService
+        .notifySellerUpdate(sale.seller?._id || sale.seller, {
+          subType: 'SALE_APPROVED',
+          title: '🎉 Your Sale is Live Again!',
+          body: `Your sale "${updated.title}" was reactivated and is live on the map.`,
+          sale: updated,
+        })
+        .catch((err) => logger.error('Failed to notify seller on activation:', err));
+    }
+
     return success(
       res,
       { sale: updated },
       `Sale ${updated.isActive ? 'activated' : 'deactivated'} successfully`
     );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/admin/sales/:id/approve
+exports.approveSale = async (req, res, next) => {
+  try {
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) throw new ApiError('Sale not found', 404);
+
+    const updated = await Sale.findByIdAndUpdate(
+      req.params.id,
+      { isApproved: true, isActive: true },
+      { new: true }
+    ).populate('seller', 'firstName lastName email');
+
+    // Notify seller that sale is approved (Seller Update)
+    notificationService
+      .notifySellerUpdate(sale.seller?._id || sale.seller, {
+        subType: 'SALE_APPROVED',
+        title: '🎉 Sale Approved!',
+        body: `Your sale "${updated.title}" has been approved by admin and is now live!`,
+        sale: updated,
+      })
+      .catch((err) => logger.error('Failed to notify seller on approval:', err));
+
+    return success(res, { sale: updated }, 'Sale approved successfully');
   } catch (err) {
     next(err);
   }
@@ -331,6 +373,11 @@ exports.createSale = async (req, res, next) => {
       'seller',
       'firstName lastName email avatarUrl'
     );
+
+    // Notify nearby users about admin-created sale
+    notificationService.notifyNearbyUsers(populated).catch((err) => {
+      logger.error('Failed to notify nearby users for admin sale:', err);
+    });
 
     return success(res, { sale: populated }, 'Sale created successfully', 201);
   } catch (err) {

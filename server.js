@@ -19,13 +19,24 @@ const start = async () => {
     logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   });
 
+  // Periodic background reminder runner (checks for starting-soon & ending-soon sales every 30 mins)
+  const notificationService = require('./src/services/notificationService');
+  const REMINDER_INTERVAL_MS = 30 * 60 * 1000;
+  const reminderTimer = setInterval(() => {
+    notificationService.checkAndSendReminders().catch((err) => {
+      logger.error('Error in periodic reminders runner:', err);
+    });
+  }, REMINDER_INTERVAL_MS);
+
   process.on('unhandledRejection', (err) => {
     logger.error('Unhandled Rejection:', err);
+    clearInterval(reminderTimer);
     server.close(() => process.exit(1));
   });
 
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received. Shutting down gracefully.');
+    clearInterval(reminderTimer);
     server.close(() => process.exit(0));
   });
 };

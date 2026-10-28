@@ -831,4 +831,114 @@ curl http://localhost:5000/health
 
 ---
 
+## 16. Push Notification System (Firebase Cloud Messaging)
+
+The notification system delivers in-app notifications and Firebase Cloud Messaging (FCM) push alerts driven by real-time user activity across **5 core categories**:
+
+### The 5 Notification Categories
+
+| Category | Type | SubType | Trigger / User Activity | Target Recipients |
+|---|---|---|---|---|
+| **Nearby sales** | `NEARBY_SALE` | `NEW_NEARBY_SALE` | A new sale is posted near a user's location or chosen area. | Users within chosen radius (default 15 km) with `nearbySales: true` |
+| **Saved-sale reminders** | `SAVED_SALE_REMINDER` | `SALE_STARTING_SOON`, `SALE_ENDING_SOON` | A sale they saved is starting in < 24h or ending soon. | Users who saved the sale (`savedSales`) with `savedSaleReminders: true` |
+| **Seller updates** | `SELLER_UPDATE` | `SALE_APPROVED`, `SALE_INQUIRY`, `SALE_ENDING_SOON` | Seller's sale is approved/activated, receives buyer inquiry, or is ending in < 2h. | The seller of the sale with `sellerUpdates: true` |
+| **Sale changes** | `SALE_UPDATE` | `SALE_DETAILS_CHANGED`, `SALE_TIME_CHANGED`, `SALE_LOCATION_CHANGED` | A saved sale's time, location, or details were edited. | Users who saved the sale with `saleChanges: true` |
+| **App announcements** | `APP_ANNOUNCEMENT` | `GENERAL_ANNOUNCEMENT` | Important admin announcements sent occasionally. | All users (or filtered role) with `appAnnouncements: true` |
+
+---
+
+### Notification API Endpoints
+
+All endpoints require JWT Bearer authentication (`Authorization: Bearer <token>`).
+
+#### 1. Notification Inbox
+- **`GET /api/notifications`**  
+  Retrieve paginated notifications for the authenticated user.  
+  *Query params:* `page=1`, `limit=20`, `isRead=false`, `type=NEARBY_SALE`
+- **`GET /api/notifications/unread-count`**  
+  Get unread notification count for badge display.
+- **`PATCH /api/notifications/:id/read`**  
+  Mark a specific notification as read.
+- **`PATCH /api/notifications/read-all`**  
+  Mark all notifications of the user as read.
+- **`DELETE /api/notifications/:id`**  
+  Delete a specific notification.
+- **`DELETE /api/notifications`**  
+  Clear all notifications.
+
+#### 2. Device Tokens (FCM)
+- **`POST /api/notifications/device-token`**  
+  Register or update an FCM device token.  
+  *Body:* `{ "token": "fcm_token_...", "platform": "android" | "ios" | "web" }`
+- **`DELETE /api/notifications/device-token`**  
+  Unregister device token on logout.  
+  *Body:* `{ "token": "fcm_token_..." }`
+- **`POST /api/notifications/test-push`**  
+  Send a test push notification to user's registered device(s) to verify FCM delivery.
+
+#### 3. User Preferences & Chosen Area
+- **`GET /api/notifications/preferences`**  
+  Get user's notification toggles, radius, and chosen alert area.
+- **`PUT /api/notifications/preferences`**  
+  Update user's notification preferences.  
+  *Body:*
+  ```json
+  {
+    "nearbySales": true,
+    "nearbyRadius": 25,
+    "savedSaleReminders": true,
+    "sellerUpdates": true,
+    "saleChanges": true,
+    "appAnnouncements": true,
+    "pushEnabled": true,
+    "chosenArea": {
+      "address": "742 Evergreen Terrace",
+      "city": "Springfield",
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "useChosenArea": true
+    }
+  }
+  ```
+
+#### 4. Sale Inquiries
+- **`POST /api/sales/:saleId/inquiry`** or **`POST /api/notifications/sales/:saleId/inquiry`**  
+  Send an inquiry about a sale (triggers `SELLER_UPDATE` push to seller).  
+  *Body:* `{ "message": "Is the price negotiable?", "contactPhone": "+1..." }`
+- **`GET /api/notifications/inquiries`**  
+  Get all inquiries received by the logged-in seller.
+
+#### 5. Admin Announcements & Reminders
+- **`POST /api/notifications/announcements`** *(Admin only)*  
+  Broadcast announcement to all users via DB notifications + FCM multicast (push skipped for users with `pushEnabled: false`).  
+  *Body:* `{ "title": "...", "body": "...", "targetRole": "all" | "user" }`
+- **`POST /api/admin/sales/:id/approve`** *(Admin only)*  
+  Approve sale and notify seller (`SELLER_UPDATE`).
+- **`POST /api/notifications/trigger-reminders`** *(Admin / Cron)*  
+  Manually trigger starting-soon and ending-soon reminder scans.
+
+---
+
+### Firebase FCM Configuration Options
+
+Push notifications use the Firebase Admin SDK (`firebase-admin`). Configure via one of the following methods in `.env`:
+
+1. **Option 1 (Recommended): File path**
+   ```env
+   FIREBASE_SERVICE_ACCOUNT_KEY_PATH=./firebase-service-account.json
+   ```
+2. **Option 2: Raw JSON string**
+   ```env
+   FIREBASE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
+   ```
+3. **Option 3: Individual credentials**
+   ```env
+   FIREBASE_PROJECT_ID=your-project-id
+   FIREBASE_CLIENT_EMAIL=firebase-adminsdk@...
+   FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+   ```
+> **Note:** If Firebase credentials are not yet supplied, the system gracefully operates in mock mode (logs notifications safely without crashing).
+
+---
+
 *Generated for Garage Sale Finder — Node.js / Express / MongoDB / JWT Backend*

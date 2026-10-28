@@ -39,7 +39,18 @@ router.post(
   saleController.createSale
 );
 
+const notificationController = require('../controllers/notificationController');
+
 router.put('/:id',    protect, saleUpload, processImages(), saleController.updateSale);
 router.delete('/:id', protect, saleController.deleteSale);
+
+// Submit inquiry on a sale (triggers SELLER_UPDATE notification)
+router.post(
+  '/:saleId/inquiry',
+  protect,
+  [body('message').trim().notEmpty().withMessage('Message is required')],
+  validate,
+  notificationController.createSaleInquiry
+);
 
 module.exports = router;

@@ -92,6 +92,41 @@ const userSchema = new mongoose.Schema(
         ref: 'Sale',
       },
     ],
+    // Push notification device tokens (FCM)
+    deviceTokens: [
+      {
+        token: { type: String, required: true },
+        platform: { type: String, enum: ['android', 'ios', 'web'], default: 'android' },
+        lastUsedAt: { type: Date, default: Date.now },
+      },
+    ],
+    // User chosen alert area (allows alerts for a specific neighborhood/city)
+    chosenArea: {
+      address: { type: String, default: null },
+      city: { type: String, default: null },
+      location: {
+        type: {
+          type: String,
+          enum: ['Point'],
+          default: 'Point',
+        },
+        coordinates: {
+          type: [Number],
+          default: [0, 0], // [longitude, latitude]
+        },
+      },
+      useChosenArea: { type: Boolean, default: false },
+    },
+    // User notification preferences
+    notificationPreferences: {
+      nearbySales: { type: Boolean, default: true },
+      nearbyRadius: { type: Number, default: 15 }, // km (5, 10, 15, 25, 50)
+      savedSaleReminders: { type: Boolean, default: true },
+      sellerUpdates: { type: Boolean, default: true },
+      saleChanges: { type: Boolean, default: true },
+      appAnnouncements: { type: Boolean, default: true },
+      pushEnabled: { type: Boolean, default: true },
+    },
     refreshTokens: {
       type: [String],
       select: false,
@@ -102,6 +137,8 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ location: '2dsphere' });
+userSchema.index({ 'chosenArea.location': '2dsphere' });
+userSchema.index({ 'deviceTokens.token': 1 });
 // email already indexed by unique: true constraint
 
 userSchema.pre('save', async function (next) {

@@ -41,6 +41,7 @@ router.post(
 );
 router.get('/sales/:id', adminController.getSale);
 router.patch('/sales/:id/toggle', adminController.toggleSaleActive);
+router.patch('/sales/:id/approve', adminController.approveSale);
 router.delete('/sales/:id', adminController.deleteSale);
 
 router.get('/logs', adminController.getLogs);
