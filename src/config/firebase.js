@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getMessaging } = require('firebase-admin/messaging');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
@@ -16,8 +17,8 @@ function initFirebase() {
     // 1. JSON string in env var
     if (env.firebase?.serviceAccountJson) {
       const serviceAccount = JSON.parse(env.firebase.serviceAccountJson);
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+      firebaseApp = initializeApp({
+        credential: cert(serviceAccount),
       });
       isInitialized = true;
       logger.info('Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT JSON env variable');
@@ -34,8 +35,8 @@ function initFirebase() {
       if (fs.existsSync(resolvedPath)) {
         const fileContent = fs.readFileSync(resolvedPath, 'utf8');
         const serviceAccount = JSON.parse(fileContent);
-        firebaseApp = admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
+        firebaseApp = initializeApp({
+          credential: cert(serviceAccount),
         });
         isInitialized = true;
         logger.info(`Firebase Admin initialized from file: ${resolvedPath}`);
@@ -52,8 +53,8 @@ function initFirebase() {
       env.firebase?.privateKey
     ) {
       const privateKey = env.firebase.privateKey.replace(/\\n/g, '\n');
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert({
+      firebaseApp = initializeApp({
+        credential: cert({
           projectId: env.firebase.projectId,
           clientEmail: env.firebase.clientEmail,
           privateKey,
@@ -69,8 +70,8 @@ function initFirebase() {
     if (fs.existsSync(defaultLocalKey)) {
       const fileContent = fs.readFileSync(defaultLocalKey, 'utf8');
       const serviceAccount = JSON.parse(fileContent);
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+      firebaseApp = initializeApp({
+        credential: cert(serviceAccount),
       });
       isInitialized = true;
       logger.info('Firebase Admin initialized from default ./firebase-service-account.json');
@@ -82,7 +83,7 @@ function initFirebase() {
     );
     return null;
   } catch (error) {
-    logger.error('Failed to initialize Firebase Admin:', error.message);
+    logger.error(`Failed to initialize Firebase Admin: ${error.message}`);
     return null;
   }
 }
@@ -116,15 +117,17 @@ async function sendMulticast(tokens, { title, body, data = {}, imageUrl = null }
     return { successCount: 0, failureCount: 0, invalidTokens: [] };
   }
 
+  // Nothing reaches a device without credentials, so report it as a failure rather than a success
   if (!isInitialized) {
-    logger.info(
-      `[FCM Mock Mode] Would send push to ${uniqueTokens.length} token(s): "${title}" - "${body}"`
+    logger.warn(
+      `[FCM Mock Mode] Push NOT delivered to ${uniqueTokens.length} token(s) (Firebase credentials missing): "${title}" - "${body}"`
     );
     return {
-      successCount: uniqueTokens.length,
-      failureCount: 0,
+      successCount: 0,
+      failureCount: uniqueTokens.length,
       invalidTokens: [],
       mock: true,
+      error: 'Firebase Admin credentials not configured',
     };
   }
 
@@ -157,7 +160,7 @@ async function sendMulticast(tokens, { title, body, data = {}, imageUrl = null }
   };
 
   try {
-    const response = await admin.messaging().sendEachForMulticast(message);
+    const response = await getMessaging(firebaseApp).sendEachForMulticast(message);
     const invalidTokens = [];
 
     response.responses.forEach((resp, idx) => {
@@ -223,7 +226,7 @@ async function sendToTopic(topic, { title, body, data = {}, imageUrl = null }) {
   };
 
   try {
-    const messageId = await admin.messaging().send(message);
+    const messageId = await getMessaging(firebaseApp).send(message);
     logger.info(`FCM topic message sent to "${topic}": ${messageId}`);
     return { messageId };
   } catch (err) {
@@ -236,7 +239,6 @@ async function sendToTopic(topic, { title, body, data = {}, imageUrl = null }) {
 initFirebase();
 
 module.exports = {
-  admin,
   initFirebase,
   isFirebaseReady: () => isInitialized,
   sendMulticast,

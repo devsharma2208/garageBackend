@@ -42,6 +42,7 @@ router.post(
 const notificationController = require('../controllers/notificationController');
 
 router.put('/:id',    protect, saleUpload, processImages(), saleController.updateSale);
+router.patch('/:id/sold-out', protect, saleController.setSoldOut);
 router.delete('/:id', protect, saleController.deleteSale);
 
 // Submit inquiry on a sale (triggers SELLER_UPDATE notification)

@@ -130,29 +130,27 @@ exports.registerDeviceToken = async (req, res, next) => {
     const { token, platform = 'android' } = req.body;
     if (!token) throw new ApiError('Device token is required', 400);
 
-    const user = await User.findById(req.user._id);
-
     // Remove token from other users if it was reassigned to this device
     await User.updateMany(
       { _id: { $ne: req.user._id }, 'deviceTokens.token': token },
       { $pull: { deviceTokens: { token } } }
     );
 
-    // Check if user already has this token
-    const existingIndex = user.deviceTokens.findIndex((dt) => dt.token === token);
+    // Atomic updates so logins from several devices at once don't overwrite each other's tokens
+    const now = new Date();
+    const refreshed = await User.updateOne(
+      { _id: req.user._id, 'deviceTokens.token': token },
+      { $set: { 'deviceTokens.$.lastUsedAt': now, 'deviceTokens.$.platform': platform } }
+    );
 
-    if (existingIndex > 0 || existingIndex === 0) {
-      user.deviceTokens[existingIndex].lastUsedAt = new Date();
-      user.deviceTokens[existingIndex].platform = platform;
-    } else {
-      user.deviceTokens.push({
-        token,
-        platform,
-        lastUsedAt: new Date(),
-      });
+    if (refreshed.matchedCount === 0) {
+      await User.updateOne(
+        { _id: req.user._id, 'deviceTokens.token': { $ne: token } },
+        { $push: { deviceTokens: { token, platform, lastUsedAt: now } } }
+      );
     }
 
-    await user.save();
+    const user = await User.findById(req.user._id).select('deviceTokens');
 
     return success(res, { tokensCount: user.deviceTokens.length }, 'Device token registered successfully');
   } catch (err) {

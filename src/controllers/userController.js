@@ -56,6 +56,7 @@ exports.getUserSales = async (req, res, next) => {
     const query = { seller: req.params.id };
     if (active === 'true') {
       query.isActive = true;
+      query.isSoldOut = { $ne: true };
       query.endTime = { $gte: new Date() };
     }
 

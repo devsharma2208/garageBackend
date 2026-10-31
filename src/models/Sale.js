@@ -84,6 +84,15 @@ const saleSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Seller marked everything as sold — hidden from public listings, still visible to savers
+    isSoldOut: {
+      type: Boolean,
+      default: false,
+    },
+    soldOutAt: {
+      type: Date,
+      default: null,
+    },
     isApproved: {
       type: Boolean,
       default: true,

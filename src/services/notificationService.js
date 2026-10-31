@@ -420,6 +420,7 @@ async function checkAndSendReminders() {
     // 1. Sales starting within the next 24 hours that haven't sent a starting reminder
     const startingSoonSales = await Sale.find({
       isActive: true,
+      isSoldOut: { $ne: true },
       startTime: { $gte: now, $lte: in24Hours },
       reminderStartingSent: false,
     });
@@ -433,6 +434,7 @@ async function checkAndSendReminders() {
     // 2. Sales ending within next 2 hours that haven't sent an ending reminder
     const endingSoonSales = await Sale.find({
       isActive: true,
+      isSoldOut: { $ne: true },
       endTime: { $gte: now, $lte: in2Hours },
       reminderEndingSent: false,
     }).populate('seller', 'firstName lastName deviceTokens');

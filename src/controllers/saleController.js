@@ -1,9 +1,14 @@
+const mongoose = require('mongoose');
 const Sale = require('../models/Sale');
 const User = require('../models/User');
 const { success } = require('../utils/response');
 const { ApiError } = require('../middleware/errorHandler');
 const notificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
+
+const EARTH_RADIUS_KM = 6378.1;
+const MAX_RADIUS_KM = 100;
+const NOT_SOLD_OUT = { $ne: true };
 
 // GET /api/sales
 exports.getSales = async (req, res, next) => {
@@ -16,17 +21,35 @@ exports.getSales = async (req, res, next) => {
       page = 1,
       limit = 20,
       categories,
+      lat,
+      lng,
+      radius, // km, capped at MAX_RADIUS_KM
+      excludeSeller, // hide this user's own sales (home feed)
     } = req.query;
 
     const query = {};
 
+    if (excludeSeller && mongoose.isValidObjectId(excludeSeller)) {
+      query.seller = { $ne: excludeSeller };
+    }
+
     if (active === 'true') {
       query.isActive = true;
+      query.isSoldOut = NOT_SOLD_OUT;
       query.endTime = { $gte: new Date() };
     }
 
     if (city && city !== 'All Cities') {
       query.city = { $regex: new RegExp(city, 'i') };
+    }
+
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+      const radiusKm = Math.min(Math.max(parseFloat(radius) || MAX_RADIUS_KM, 1), MAX_RADIUS_KM);
+      query.location = {
+        $geoWithin: { $centerSphere: [[lngNum, latNum], radiusKm / EARTH_RADIUS_KM] },
+      };
     }
 
     if (search) {
@@ -81,7 +104,7 @@ exports.getSales = async (req, res, next) => {
 // GET /api/sales/trending
 exports.getTrending = async (req, res, next) => {
   try {
-    const sales = await Sale.find({ isActive: true, endTime: { $gte: new Date() } })
+    const sales = await Sale.find({ isActive: true, isSoldOut: NOT_SOLD_OUT, endTime: { $gte: new Date() } })
       .sort({ views: -1 })
       .limit(10)
       .populate('seller', 'firstName lastName avatarUrl sellerBadge rating phone');
@@ -99,6 +122,7 @@ exports.getEndingSoon = async (req, res, next) => {
 
     const sales = await Sale.find({
       isActive: true,
+      isSoldOut: NOT_SOLD_OUT,
       endTime: { $gte: new Date(), $lte: cutoff },
     })
       .sort({ endTime: 1 })
@@ -120,6 +144,7 @@ exports.getNearbySales = async (req, res, next) => {
 
     const sales = await Sale.find({
       isActive: true,
+      isSoldOut: NOT_SOLD_OUT,
       endTime: { $gte: new Date() },
       location: {
         $nearSphere: {
@@ -146,9 +171,16 @@ exports.getStats = async (req, res, next) => {
     const now = new Date();
     const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+    // Optionally leave out the requesting user's own sales (home feed)
+    const { excludeSeller } = req.query;
+    const base = { isActive: true, isSoldOut: NOT_SOLD_OUT };
+    if (excludeSeller && mongoose.isValidObjectId(excludeSeller)) {
+      base.seller = { $ne: excludeSeller };
+    }
+
     const [liveSales, endingSoon] = await Promise.all([
-      Sale.countDocuments({ isActive: true, endTime: { $gte: now } }),
-      Sale.countDocuments({ isActive: true, endTime: { $gte: now, $lte: cutoff } }),
+      Sale.countDocuments({ ...base, endTime: { $gte: now } }),
+      Sale.countDocuments({ ...base, endTime: { $gte: now, $lte: cutoff } }),
     ]);
 
     return success(res, { liveSales, endingSoon });
@@ -312,6 +344,9 @@ exports.updateSale = async (req, res, next) => {
       startTime,
       endTime,
       categories,
+      availability,
+      existingImages,
+      imageOrder,
       isActive,
     } = req.body;
 
@@ -367,7 +402,36 @@ exports.updateSale = async (req, res, next) => {
         typeof categories === 'string' ? JSON.parse(categories) : categories;
     }
 
-    if (req.cloudinaryUrls?.length > 0) {
+    if (availability !== undefined) {
+      updateData.availability = parseAvailability(availability);
+      changedFields.push('availability');
+    }
+
+    if (imageOrder !== undefined) {
+      const order = typeof imageOrder === 'string' ? JSON.parse(imageOrder) : imageOrder;
+      const uploaded = req.cloudinaryUrls || [];
+      const finalImages = [];
+      if (Array.isArray(order)) {
+        order.forEach((token) => {
+          if (typeof token === 'string' && token.startsWith('new:')) {
+            const idx = parseInt(token.replace('new:', ''), 10);
+            if (uploaded[idx]) finalImages.push(uploaded[idx]);
+          } else if (typeof token === 'string' && token.startsWith('existing:')) {
+            const url = token.replace('existing:', '');
+            finalImages.push(url);
+          }
+        });
+      }
+      updateData.images = finalImages;
+      changedFields.push('images');
+    } else if (existingImages !== undefined || req.cloudinaryUrls?.length > 0) {
+      const existing = existingImages !== undefined
+        ? (typeof existingImages === 'string' ? JSON.parse(existingImages) : existingImages)
+        : (req.cloudinaryUrls?.length > 0 ? sale.images : []);
+      const uploaded = req.cloudinaryUrls || [];
+      updateData.images = [...(Array.isArray(existing) ? existing : []), ...uploaded];
+      changedFields.push('images');
+    } else if (req.cloudinaryUrls?.length > 0) {
       updateData.images = req.cloudinaryUrls;
     }
 
@@ -384,6 +448,38 @@ exports.updateSale = async (req, res, next) => {
     }
 
     return success(res, { sale: updated }, 'Sale updated successfully');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/sales/:id/sold-out  { isSoldOut: boolean }
+exports.setSoldOut = async (req, res, next) => {
+  try {
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) throw new ApiError('Sale not found', 404);
+
+    if (sale.seller.toString() !== req.user._id.toString()) {
+      throw new ApiError('Not authorized to update this sale', 403);
+    }
+
+    const isSoldOut = req.body.isSoldOut !== false && req.body.isSoldOut !== 'false';
+
+    const updated = await Sale.findByIdAndUpdate(
+      req.params.id,
+      { isSoldOut, soldOutAt: isSoldOut ? new Date() : null },
+      { new: true }
+    ).populate('seller', 'firstName lastName avatarUrl sellerBadge phone');
+
+    if (isSoldOut !== !!sale.isSoldOut) {
+      notificationService
+        .notifySaleChanges(updated, [isSoldOut ? 'availability (sold out)' : 'availability (back on sale)'])
+        .catch((notifyErr) => {
+          logger.error('Failed to dispatch sold out notifications:', notifyErr);
+        });
+    }
+
+    return success(res, { sale: updated }, isSoldOut ? 'Sale marked as sold out' : 'Sale is available again');
   } catch (err) {
     next(err);
   }
